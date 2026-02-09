@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  # Redpanda (Kafka-compatible message broker)
+  redpanda:
+    container_name: redpanda
+    image: docker.redpanda.com/redpandadata/redpanda:latest
+    ports:
+      - "9092:9092"  # Kafka API
+      - "8081:8081"  # Schema Registry
+    command:
+      - redpanda
+      - start
+      - --kafka-addr
+      - PLAINTEXT://0.0.0.0:9092,OUTSIDE://0.0.0.0:9093
+      - --advertise-kafka-addr
+      - PLAINTEXT://redpanda:9092,OUTSIDE://localhost:9093
+    networks:
+      - todo-network
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "info"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # FastAPI application
+  fastapi-app:
+    container_name: todo-backend
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"  # FastAPI server
+    environment:
+      - KAFKA_BROKER=redpanda:9092
+      - DAPR_HOST=dapr-sidecar
+      - DAPR_PORT=3500
+      - DEBUG=True
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    networks:
+      - todo-network
+    volumes:
+      - .:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+networks:
+  todo-network:
+    driver: bridge
